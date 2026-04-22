@@ -95,6 +95,7 @@ vi.mock("./controllers/chat.ts", async (importOriginal) => {
 });
 
 type TestGatewayHost = Parameters<typeof connectGateway>[0] & {
+  chatMessages: unknown[];
   chatSideResult: unknown;
   chatSideResultTerminalRuns: Set<string>;
   chatStream: string | null;
@@ -654,6 +655,72 @@ describe("connectGateway", () => {
     },
   );
 
+  it("does not replay deferred session.message reloads after a locally appendable final assistant event", () => {
+    const { host, client } = connectHostGateway();
+    host.chatRunId = "main-run-4";
+    host.chatStream = "Done";
+    loadChatHistoryMock.mockClear();
+
+    client.emitEvent({
+      event: "session.message",
+      payload: {
+        sessionKey: "main",
+      },
+    });
+
+    expect(loadChatHistoryMock).not.toHaveBeenCalled();
+
+    client.emitEvent({
+      event: "chat",
+      payload: {
+        runId: "main-run-4",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Done" }],
+        },
+      },
+    });
+
+    expect(host.chatRunId).toBeNull();
+    expect(loadChatHistoryMock).not.toHaveBeenCalled();
+    expect(host.chatMessages).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Done" }],
+      },
+    ]);
+  });
+
+  it("replays deferred session.message reloads after a final event without assistant payload", () => {
+    const { host, client } = connectHostGateway();
+    host.chatRunId = "main-run-5";
+    loadChatHistoryMock.mockClear();
+
+    client.emitEvent({
+      event: "session.message",
+      payload: {
+        sessionKey: "main",
+      },
+    });
+
+    expect(loadChatHistoryMock).not.toHaveBeenCalled();
+
+    client.emitEvent({
+      event: "chat",
+      payload: {
+        runId: "main-run-5",
+        sessionKey: "main",
+        state: "final",
+      },
+    });
+
+    expect(host.chatRunId).toBeNull();
+    expect(loadChatHistoryMock).toHaveBeenCalledTimes(1);
+    expect(loadChatHistoryMock).toHaveBeenCalledWith(host);
+  });
+
   it("clears tracked BTW terminal runs after reconnect hello", () => {
     const host = createHost();
 
@@ -776,6 +843,33 @@ describe("connectGateway", () => {
     });
 
     expect(loadChatHistoryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reload chat history after a locally appendable final assistant event", () => {
+    const { host, client } = connectHostGateway();
+    host.chatRunId = "engine-run-2";
+    host.chatStream = "Done";
+
+    client.emitEvent({
+      event: "chat",
+      payload: {
+        runId: "engine-run-2",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Done" }],
+        },
+      },
+    });
+
+    expect(loadChatHistoryMock).not.toHaveBeenCalled();
+    expect(host.chatMessages).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Done" }],
+      },
+    ]);
   });
 });
 

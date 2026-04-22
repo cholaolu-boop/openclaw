@@ -424,14 +424,19 @@ function handleChatGatewayEvent(host: GatewayHost, payload: ChatEventPayload | u
     payloadSessionKey === host.sessionKey &&
     !host.chatRunId,
   );
+  const finalEventNeedsHistoryReload =
+    state === "final" && shouldReloadHistoryForFinalEvent(payload);
+  const shouldReplayDeferredSessionMessageHistoryReload =
+    shouldReplayDeferredSessionMessageReload &&
+    (state === "aborted" || state === "error" || finalEventNeedsHistoryReload);
   if (deferredSessionKey && payloadSessionKey && deferredSessionKey === payloadSessionKey) {
     deferredReloadHost.pendingSessionMessageReloadSessionKey = null;
   }
-  if (state === "final" && !historyReloaded && shouldReloadHistoryForFinalEvent(payload)) {
+  if (finalEventNeedsHistoryReload && !historyReloaded) {
     void loadChatHistory(host as unknown as ChatState);
     return;
   }
-  if (shouldReplayDeferredSessionMessageReload && !historyReloaded) {
+  if (shouldReplayDeferredSessionMessageHistoryReload && !historyReloaded) {
     void loadChatHistory(host as unknown as ChatState);
   }
 }
