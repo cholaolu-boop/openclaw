@@ -467,6 +467,82 @@ describe("sessions tools", () => {
     expect(thinkingBlock?.thinkingSignature).toBeUndefined();
   });
 
+  it("sessions_history strips audio base64 payloads and preserves image sanitization", async () => {
+    callGatewayMock.mockImplementation(async (opts: unknown) => {
+      const request = opts as { method?: string };
+      if (request.method === "chat.history") {
+        return {
+          messages: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "audio",
+                  source: {
+                    type: "base64",
+                    media_type: "audio/mpeg",
+                    data: "a".repeat(4096),
+                  },
+                },
+                {
+                  type: "image",
+                  data: "b".repeat(2048),
+                  mimeType: "image/png",
+                },
+              ],
+            },
+          ],
+        };
+      }
+      return {};
+    });
+
+    const tool = createOpenClawTools().find((candidate) => candidate.name === "sessions_history");
+    expect(tool).toBeDefined();
+    if (!tool) {
+      throw new Error("missing sessions_history tool");
+    }
+
+    const result = await tool.execute("call4b-audio", {
+      sessionKey: "main",
+      includeTools: true,
+    });
+    const details = result.details as {
+      messages?: Array<{
+        content?: Array<{
+          type?: string;
+          omitted?: boolean;
+          bytes?: number;
+          data?: string;
+          source?: { data?: string; media_type?: string; type?: string };
+          mimeType?: string;
+        }>;
+      }>;
+      truncated?: boolean;
+      contentTruncated?: boolean;
+      contentRedacted?: boolean;
+    };
+
+    expect(details.truncated).toBe(true);
+    expect(details.contentTruncated).toBe(true);
+    expect(details.contentRedacted).toBe(false);
+
+    const content = details.messages?.[0]?.content ?? [];
+    const audioBlock = content.find((block) => block.type === "audio");
+    expect(audioBlock).toBeDefined();
+    expect(audioBlock?.source?.data).toBeUndefined();
+    expect(audioBlock?.source?.media_type).toBe("audio/mpeg");
+    expect(audioBlock?.omitted).toBe(true);
+    expect(audioBlock?.bytes).toBe(4096);
+
+    const imageBlock = content.find((block) => block.type === "image");
+    expect(imageBlock).toBeDefined();
+    expect(imageBlock?.data).toBeUndefined();
+    expect(imageBlock?.mimeType).toBe("image/png");
+    expect(imageBlock?.omitted).toBe(true);
+    expect(imageBlock?.bytes).toBe(2048);
+  });
+
   it("sessions_history enforces a hard byte cap even when a single message is huge", async () => {
     callGatewayMock.mockImplementation(async (opts: unknown) => {
       const request = opts as { method?: string };
